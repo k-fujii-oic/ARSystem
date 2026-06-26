@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AR Photo Studio</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js"
+  }
+}
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #fff;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    overflow: hidden;
+    height: 100dvh;
+    width: 100vw;
+  }
+
+  /* カメラ映像レイヤー */
+  #video {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+  }
+
+  /* Three.js canvas */
+  #three-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* 手トラッキングcanvas（MediaPipe描画用・非表示） */
+  #hand-canvas {
+    display: none;
+  }
+
+  /* UI全体 */
+  #ui {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  /* トップバー */
+  #topbar {
+    pointer-events: all;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+  }
+
+  #topbar h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #fff;
+    opacity: 0.9;
+  }
+
+  #mode-toggle {
+    display: flex;
+    background: rgba(255,255,255,0.12);
+    border-radius: 20px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .mode-btn {
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.04em;
+  }
+
+  .mode-btn.active {
+    background: #fff;
+    color: #0a0a0f;
+  }
+
+  /* ステータスバー */
+  #status-bar {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    pointer-events: none;
+  }
+
+  #status-msg {
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 12px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    letter-spacing: 0.04em;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+
+  #status-msg.visible { opacity: 1; }
+
+  /* 手トラッキングインジケーター */
+  #hand-indicator {
+    position: fixed;
+    top: 110px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(99,230,140,0.15);
+    border: 1px solid rgba(99,230,140,0.4);
+    padding: 6px 14px;
+    border-radius: 20px;
+  }
+
+  #hand-indicator.active { display: flex; }
+
+  .hand-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #63e68c;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  #hand-indicator span {
+    font-size: 11px;
+    color: #63e68c;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  /* ボトムUI */
+  #bottom-ui {
+    pointer-events: all;
+    background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
+    padding: 16px 0 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+  }
+
+  /* モデルサムネイル一覧 */
+  #model-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 4px 20px;
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  #model-list::-webkit-scrollbar { display: none; }
+
+  .model-thumb {
+    flex-shrink: 0;
+    width: 68px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  .model-thumb:active { transform: scale(0.93); }
+
+  .thumb-box {
+    width: 68px;
+    height: 68px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .model-thumb.selected .thumb-box {
+    border-color: #63e68c;
+    background: rgba(99,230,140,0.15);
+    box-shadow: 0 0 0 3px rgba(99,230,140,0.2);
+  }
+
+  .thumb-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    text-align: center;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+
+  .model-thumb.selected .thumb-label {
+    color: #63e68c;
+    font-weight: 600;
+  }
+
+  /* コントロールバー */
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 24px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* アクションボタン（削除・全消し） */
+  .action-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+  }
+
+  .action-btn:active { background: rgba(255,255,255,0.25); }
+
+  /* シャッターボタン */
+  #shutter {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 4px solid #fff;
+    background: rgba(255,255,255,0.15);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    backdrop-filter: blur(4px);
+  }
+
+  #shutter:active {
+    background: rgba(255,255,255,0.9);
+    transform: scale(0.93);
+  }
+
+  #shutter-inner {
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    background: #fff;
+    transition: all 0.15s;
+  }
+
+  #shutter:active #shutter-inner {
+    background: #0a0a0f;
+  }
+
+  /* スケールスライダー */
+  #scale-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 24px;
+    width: 100%;
+  }
+
+  #scale-control label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 0.06em;
+    min-width: 36px;
+  }
+
+  #scale-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.2);
+    outline: none;
+  }
+
+  #scale-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.3);
+  }
+
+  /* フラッシュエフェクト */
+  #flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    z-index: 100;
+    pointer-events: none;
+    transition: opacity 0.05s;
+  }
+
+  #flash.active { opacity: 1; }
+
+  /* カメラ起動待ち */
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: #0a0a0f;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  #loading h2 {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    opacity: 0.8;
+  }
+
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: #63e68c;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #loading p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    text-align: center;
+    padding: 0 32px;
+    line-height: 1.6;
+  }
+
+  /* 配置済みモデルの選択リング（Three.js外のタッチ補助） */
+  #touch-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <h2>AR Photo Studio</h2>
+  <p>カメラへのアクセスを許可してください</p>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="three-canvas"></canvas>
+<canvas id="hand-canvas"></canvas>
+<div id="flash"></div>
+
+<div id="ui">
+  <div id="topbar">
+    <h1>AR Photo Studio</h1>
+    <div id="mode-toggle">
+      <button class="mode-btn active" data-mode="free" onclick="setMode('free')">自由配置</button>
+      <button class="mode-btn" data-mode="hand" onclick="setMode('hand')">手持ち</button>
+    </div>
+  </div>
+
+  <div id="bottom-ui">
+    <div id="scale-control">
+      <label>サイズ</label>
+      <input type="range" id="scale-slider" min="0.1" max="3" step="0.05" value="1"
+             oninput="onScaleChange(this.value)">
+    </div>
+
+    <div id="model-list">
+      <!-- JSで生成 -->
+    </div>
+
+    <div id="controls">
+      <button class="action-btn" onclick="removeSelected()" title="選択を削除">🗑</button>
+      <button id="shutter" onclick="takePhoto()">
+        <div id="shutter-inner"></div>
+      </button>
+      <button class="action-btn" onclick="clearAll()" title="全て消す">✕</button>
+    </div>
+  </div>
+</div>
+
+<div id="touch-overlay"></div>
+
+<div id="status-bar">
+  <div id="status-msg"></div>
+</div>
+
+<div id="hand-indicator">
+  <div class="hand-dot"></div>
+  <span>手を検出中</span>
+</div>
+
+<!-- Three.js r128 module -->
+<script type="module">
+import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
+
+// ─── モデル定義（デモ用：プリミティブ形状で代用）───
+const MODEL_DEFS = [
+  { id: 'cube',     label: 'キューブ',   emoji: '🟦', color: 0x4488ff, shape: 'box' },
+  { id: 'sphere',   label: 'スフィア',   emoji: '🟡', color: 0xffcc44, shape: 'sphere' },
+  { id: 'torus',    label: 'リング',     emoji: '⭕', color: 0xff5577, shape: 'torus' },
+  { id: 'cone',     label: 'コーン',     emoji: '🔺', color: 0x44ffaa, shape: 'cone' },
+  { id: 'cylinder', label: 'シリンダー', emoji: '🔵', color: 0xaa44ff, shape: 'cylinder' },
+  { id: 'star',     label: 'スター',     emoji: '⭐', color: 0xffee00, shape: 'star' },
+];
+
+// ─── Three.js セットアップ ───
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 5);
+
+// 環境光
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(5, 10, 5);
+scene.add(dirLight);
+const pointLight = new THREE.PointLight(0x88aaff, 0.5);
+pointLight.position.set(-5, 5, 3);
+scene.add(pointLight);
+
+// ─── 状態管理 ───
+let placedObjects = [];       // { mesh, screenX, screenY, scale, modelId }
+let selectedObj = null;
+let currentModelId = MODEL_DEFS[0].id;
+let currentMode = 'free';
+let handDetected = false;
+let handPosition = { x: 0, y: 0 };
+let handObject = null;        // 手持ちモードで追従するオブジェクト
+
+// ─── プリミティブ生成 ───
+function createMesh(def, scale = 1) {
+  let geo;
+  switch (def.shape) {
+    case 'box':      geo = new THREE.BoxGeometry(1,1,1); break;
+    case 'sphere':   geo = new THREE.SphereGeometry(0.6, 32, 32); break;
+    case 'torus':    geo = new THREE.TorusGeometry(0.5, 0.2, 16, 60); break;
+    case 'cone':     geo = new THREE.ConeGeometry(0.6, 1.2, 32); break;
+    case 'cylinder': geo = new THREE.CylinderGeometry(0.4, 0.4, 1, 32); break;
+    case 'star':     geo = createStarGeometry(); break;
+    default:         geo = new THREE.BoxGeometry(1,1,1);
+  }
+  const mat = new THREE.MeshStandardMaterial({
+    color: def.color,
+    metalness: 0.3,
+    roughness: 0.5,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.scale.setScalar(scale);
+  return mesh;
+}
+
+function createStarGeometry() {
+  const shape = new THREE.Shape();
+  const outerR = 0.6, innerR = 0.25, points = 5;
+  for (let i = 0; i < points * 2; i++) {
+    const angle = (i * Math.PI) / points - Math.PI / 2;
+    const r = i % 2 === 0 ? outerR : innerR;
+    i === 0 ? shape.moveTo(Math.cos(angle)*r, Math.sin(angle)*r)
+            : shape.lineTo(Math.cos(angle)*r, Math.sin(angle)*r);
+  }
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
+}
+
+// ─── スクリーン座標 → Three.js ワールド座標 ───
+function screenToWorld(sx, sy, depth = 3) {
+  const ndc = new THREE.Vector3(
+    (sx / window.innerWidth) * 2 - 1,
+    -(sy / window.innerHeight) * 2 + 1,
+    0.5
+  );
+  ndc.unproject(camera);
+  const dir = ndc.sub(camera.position).normalize();
+  return camera.position.clone().add(dir.multiplyScalar(depth));
+}
+
+// ─── オブジェクト配置 ───
+function placeObject(sx, sy, modelId = currentModelId, scale = 1) {
+  const def = MODEL_DEFS.find(d => d.id === modelId);
+  if (!def) return;
+  const mesh = createMesh(def, scale);
+  const pos = screenToWorld(sx, sy);
+  mesh.position.copy(pos);
+  scene.add(mesh);
+
+  const obj = { mesh, screenX: sx, screenY: sy, scale, modelId };
+  placedObjects.push(obj);
+  selectObject(obj);
+  showStatus(`${def.label}を配置しました`);
+  return obj;
+}
+
+function selectObject(obj) {
+  // 以前の選択を解除
+  if (selectedObj && selectedObj.mesh) {
+    selectedObj.mesh.material.emissive?.setHex(0x000000);
+  }
+  selectedObj = obj;
+  if (obj && obj.mesh) {
+    obj.mesh.material.emissive = new THREE.Color(0x224411);
+  }
+  if (obj) {
+    document.getElementById('scale-slider').value = obj.scale;
+  }
+}
+
+function removeSelected() {
+  if (!selectedObj) return;
+  scene.remove(selectedObj.mesh);
+  placedObjects = placedObjects.filter(o => o !== selectedObj);
+  const idx = placedObjects.length - 1;
+  selectObject(idx >= 0 ? placedObjects[idx] : null);
+  showStatus('削除しました');
+}
+
+function clearAll() {
+  placedObjects.forEach(o => scene.remove(o.mesh));
+  placedObjects = [];
+  selectedObj = null;
+  if (handObject) { scene.remove(handObject); handObject = null; }
+  showStatus('全て消しました');
+}
+
+// ─── サイズ変更 ───
+window.onScaleChange = function(val) {
+  if (!selectedObj) return;
+  selectedObj.scale = parseFloat(val);
+  selectedObj.mesh.scale.setScalar(selectedObj.scale);
+};
+
+// ─── モード切替 ───
+window.setMode = function(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  if (mode === 'hand') {
+    startHandTracking();
+    showStatus('手をカメラに向けてください');
+  } else {
+    stopHandTracking();
+    if (handObject) { scene.remove(handObject); handObject = null; }
+  }
+};
+
+// ─── アニメーションループ ───
+let frameId;
+function animate() {
+  frameId = requestAnimationFrame(animate);
+
+  // 自動回転
+  placedObjects.forEach(obj => {
+    if (obj.mesh) {
+      obj.mesh.rotation.y += 0.008;
+    }
+  });
+
+  // 手持ちオブジェクト追従
+  if (currentMode === 'hand' && handDetected && handObject) {
+    const targetPos = screenToWorld(handPosition.x, handPosition.y, 2.5);
+    handObject.position.lerp(targetPos, 0.2);
+    handObject.rotation.y += 0.012;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// ─── タッチ操作 ───
+const overlay = document.getElementById('touch-overlay');
+let touchStartX, touchStartY, touchStartTime;
+let pinchStartDist = 0;
+let pinchObj = null;
+
+overlay.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+
+    // タッチ位置にあるオブジェクトを選択
+    const hit = hitTest(touchStartX, touchStartY);
+    if (hit) {
+      selectObject(hit);
+    }
+  } else if (e.touches.length === 2) {
+    // ピンチ開始
+    pinchStartDist = getPinchDist(e);
+    pinchObj = selectedObj;
+  }
+}, { passive: false });
+
+overlay.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (e.changedTouches.length === 1 && currentMode === 'free') {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const dt = Date.now() - touchStartTime;
+
+    if (dist < 12 && dt < 300) {
+      // タップ → 配置
+      const hit = hitTest(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      if (!hit) {
+        placeObject(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      }
+    }
+  }
+}, { passive: false });
+
+overlay.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && selectedObj) {
+    const sx = e.touches[0].clientX;
+    const sy = e.touches[0].clientY;
+    const newPos = screenToWorld(sx, sy);
+    selectedObj.mesh.position.copy(newPos);
+    selectedObj.screenX = sx;
+    selectedObj.screenY = sy;
+  } else if (e.touches.length === 2 && pinchObj) {
+    const d = getPinchDist(e);
+    const ratio = d / pinchStartDist;
+    const newScale = Math.max(0.1, Math.min(3, pinchObj.scale * ratio));
+    pinchObj.mesh.scale.setScalar(newScale);
+    pinchObj.scale = newScale;
+    document.getElementById('scale-slider').value = newScale;
+    pinchStartDist = d;
+  }
+}, { passive: false });
+
+function getPinchDist(e) {
+  const dx = e.touches[0].clientX - e.touches[1].clientX;
+  const dy = e.touches[0].clientY - e.touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+// ─── ヒットテスト（簡易：スクリーン距離）───
+function hitTest(sx, sy) {
+  let best = null, bestD = 60;
+  placedObjects.forEach(obj => {
+    const wpos = obj.mesh.position.clone().project(camera);
+    const px = (wpos.x * 0.5 + 0.5) * window.innerWidth;
+    const py = (-wpos.y * 0.5 + 0.5) * window.innerHeight;
+    const d = Math.sqrt((px-sx)**2 + (py-sy)**2);
+    if (d < bestD) { bestD = d; best = obj; }
+  });
+  return best;
+}
+
+// ─── 写真撮影 ───
+window.takePhoto = function() {
+  // フラッシュ
+  const flash = document.getElementById('flash');
+  flash.classList.add('active');
+  setTimeout(() => flash.classList.remove('active'), 150);
+
+  // canvas合成：video + Three.js
+  const w = window.innerWidth * window.devicePixelRatio;
+  const h = window.innerHeight * window.devicePixelRatio;
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const ctx = out.getContext('2d');
+
+  // ビデオ描画
+  const video = document.getElementById('video');
+  ctx.drawImage(video, 0, 0, w, h);
+
+  // Three.js canvas描画
+  renderer.render(scene, camera);
+  ctx.drawImage(canvas, 0, 0, w, h);
+
+  // ダウンロード
+  out.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ar-photo-${Date.now()}.jpg`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/jpeg', 0.92);
+
+  showStatus('📸 写真を保存しました');
+};
+
+// ─── ステータス表示 ───
+let statusTimer;
+function showStatus(msg) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+}
+
+// ─── リサイズ対応 ───
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── カメラ起動 ───
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play();
+      document.getElementById('loading').style.display = 'none';
+      showStatus('画面をタップしてモデルを配置');
+    };
+  } catch(err) {
+    const loading = document.getElementById('loading');
+    loading.innerHTML = `
+      <div style="font-size:48px">📷</div>
+      <h2 style="color:#ff5577">カメラにアクセスできません</h2>
+      <p>ブラウザの設定でカメラを許可してください。<br>HTTPSでアクセスする必要があります。</p>
+    `;
+  }
+}
+
+// ─── 手トラッキング（MediaPipe Hands）───
+let handsDetector = null;
+let handTrackActive = false;
+let handVideoFrame;
+
+async function startHandTracking() {
+  if (handsDetector) { handTrackActive = true; return; }
+
+  // MediaPipeをCDNから動的ロード
+  showStatus('手トラッキングを初期化中…');
+  try {
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+
+    handsDetector = new window.Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    handsDetector.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5,
+    });
+    handsDetector.onResults(onHandResults);
+    await handsDetector.initialize();
+
+    const video = document.getElementById('video');
+    handTrackActive = true;
+
+    async function processFrame() {
+      if (!handTrackActive) return;
+      if (video.readyState >= 2) await handsDetector.send({ image: video });
+      handVideoFrame = requestAnimationFrame(processFrame);
+    }
+    processFrame();
+    showStatus('手をカメラに向けてください');
+  } catch(e) {
+    showStatus('手トラッキングの読み込みに失敗しました');
+    setMode('free');
+  }
+}
+
+function stopHandTracking() {
+  handTrackActive = false;
+  cancelAnimationFrame(handVideoFrame);
+  handDetected = false;
+  document.getElementById('hand-indicator').classList.remove('active');
+}
+
+function onHandResults(results) {
+  if (!handTrackActive) return;
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const lm = results.multiHandLandmarks[0];
+    // 手のひら中心（ランドマーク9）
+    const palm = lm[9];
+    handPosition.x = palm.x * window.innerWidth;
+    handPosition.y = palm.y * window.innerHeight;
+    handDetected = true;
+    document.getElementById('hand-indicator').classList.add('active');
+
+    // 手持ちオブジェクトがなければ作成
+    if (!handObject && currentMode === 'hand') {
+      const def = MODEL_DEFS.find(d => d.id === currentModelId);
+      handObject = createMesh(def, parseFloat(document.getElementById('scale-slider').value));
+      scene.add(handObject);
+    }
+  } else {
+    handDetected = false;
+    document.getElementById('hand-indicator').classList.remove('active');
+  }
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ─── モデル選択UI生成 ───
+function buildModelList() {
+  const list = document.getElementById('model-list');
+  MODEL_DEFS.forEach(def => {
+    const item = document.createElement('div');
+    item.className = 'model-thumb' + (def.id === currentModelId ? ' selected' : '');
+    item.dataset.id = def.id;
+    item.innerHTML = `
+      <div class="thumb-box">${def.emoji}</div>
+      <div class="thumb-label">${def.label}</div>
+    `;
+    item.addEventListener('click', () => {
+      currentModelId = def.id;
+      document.querySelectorAll('.model-thumb').forEach(el => el.classList.remove('selected'));
+      item.classList.add('selected');
+      // 手持ちモードならオブジェクトを差し替え
+      if (currentMode === 'hand' && handObject) {
+        scene.remove(handObject);
+        const d = MODEL_DEFS.find(d => d.id === currentModelId);
+        handObject = createMesh(d, parseFloat(document.getElementById('scale-slider').value));
+        scene.add(handObject);
+      }
+      showStatus(`${def.label}を選択`);
+    });
+    list.appendChild(item);
+  });
+}
+
+// ─── グローバル公開（ボタンから呼べるように）───
+window.removeSelected = removeSelected;
+window.clearAll = clearAll;
+
+// ─── 初期化 ───
+buildModelList();
+startCamera();
+</script>
+</body>
+</html>
