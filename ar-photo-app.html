@@ -4,16 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>AR Photo Studio</title>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js"
-  }
-}
-</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     background: #0a0a0f;
     color: #fff;
@@ -22,367 +14,224 @@
     height: 100dvh;
     width: 100vw;
   }
-
-  /* カメラ映像レイヤー */
   #video {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    z-index: 1;
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover; z-index: 1;
   }
+  /* インカメラ時は左右反転 */
+  #video.mirrored { transform: scaleX(-1); }
 
-  /* Three.js canvas */
   #three-canvas {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 2;
-    pointer-events: none;
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    z-index: 2; pointer-events: none;
   }
+  #hand-canvas { display: none; }
 
-  /* 手トラッキングcanvas（MediaPipe描画用・非表示） */
-  #hand-canvas {
-    display: none;
-  }
-
-  /* UI全体 */
+  /* ── UI ── */
   #ui {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
+    position: fixed; inset: 0; z-index: 10;
     pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    display: flex; flex-direction: column; justify-content: space-between;
   }
 
   /* トップバー */
   #topbar {
     pointer-events: all;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     padding: 16px 20px;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    background: linear-gradient(to bottom, rgba(0,0,0,0.65), transparent);
+    gap: 10px;
   }
-
   #topbar h1 {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: #fff;
-    opacity: 0.9;
+    font-size: 14px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
   }
-
   #mode-toggle {
-    display: flex;
-    background: rgba(255,255,255,0.12);
-    border-radius: 20px;
-    padding: 3px;
-    gap: 2px;
+    display: flex; background: rgba(255,255,255,0.12);
+    border-radius: 20px; padding: 3px; gap: 2px;
   }
-
   .mode-btn {
-    padding: 6px 14px;
-    border-radius: 16px;
-    border: none;
-    background: transparent;
-    color: rgba(255,255,255,0.6);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 0.04em;
+    padding: 6px 12px; border-radius: 16px; border: none;
+    background: transparent; color: rgba(255,255,255,0.6);
+    font-size: 11px; font-weight: 700; cursor: pointer;
+    transition: all 0.2s; letter-spacing: 0.04em; white-space: nowrap;
   }
+  .mode-btn.active { background: #fff; color: #0a0a0f; }
 
-  .mode-btn.active {
-    background: #fff;
-    color: #0a0a0f;
+  /* カメラ切替ボタン */
+  #cam-flip {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: rgba(255,255,255,0.15); color: #fff;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s; flex-shrink: 0;
   }
+  #cam-flip:active { background: rgba(255,255,255,0.35); }
 
-  /* ステータスバー */
+  /* ステータス */
   #status-bar {
-    position: fixed;
-    top: 70px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 11;
-    pointer-events: none;
+    position: fixed; top: 72px; left: 50%;
+    transform: translateX(-50%); z-index: 11; pointer-events: none;
   }
-
   #status-msg {
-    background: rgba(0,0,0,0.55);
-    color: #fff;
-    font-size: 12px;
-    padding: 6px 16px;
-    border-radius: 20px;
-    letter-spacing: 0.04em;
-    opacity: 0;
-    transition: opacity 0.3s;
-    white-space: nowrap;
+    background: rgba(0,0,0,0.6); color: #fff;
+    font-size: 12px; padding: 6px 18px; border-radius: 20px;
+    letter-spacing: 0.04em; opacity: 0;
+    transition: opacity 0.3s; white-space: nowrap;
   }
-
   #status-msg.visible { opacity: 1; }
 
-  /* 手トラッキングインジケーター */
+  /* 手トラッキング表示 */
   #hand-indicator {
-    position: fixed;
-    top: 110px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 11;
-    display: none;
-    align-items: center;
-    gap: 8px;
+    position: fixed; top: 112px; left: 50%;
+    transform: translateX(-50%); z-index: 11;
+    display: none; align-items: center; gap: 8px;
     background: rgba(99,230,140,0.15);
     border: 1px solid rgba(99,230,140,0.4);
-    padding: 6px 14px;
-    border-radius: 20px;
+    padding: 6px 14px; border-radius: 20px;
   }
-
   #hand-indicator.active { display: flex; }
-
   .hand-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: #63e68c;
+    width: 8px; height: 8px; border-radius: 50%; background: #63e68c;
     animation: pulse 1.2s ease-in-out infinite;
   }
-
   @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:0.5; transform:scale(0.8); }
   }
-
-  #hand-indicator span {
-    font-size: 11px;
-    color: #63e68c;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-  }
+  #hand-indicator span { font-size:11px; color:#63e68c; font-weight:700; letter-spacing:0.06em; }
 
   /* ボトムUI */
   #bottom-ui {
     pointer-events: all;
-    background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
-    padding: 16px 0 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    align-items: center;
+    background: linear-gradient(to top, rgba(0,0,0,0.78) 0%, transparent 100%);
+    padding: 12px 0 30px;
+    display: flex; flex-direction: column; gap: 12px; align-items: center;
   }
 
-  /* モデルサムネイル一覧 */
+  /* スライダー群 */
+  .slider-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 20px; width: 100%;
+  }
+  .slider-row label {
+    font-size: 10px; color: rgba(255,255,255,0.45);
+    letter-spacing: 0.07em; min-width: 34px; text-align: right;
+  }
+  .slider-row input[type=range] {
+    flex: 1; -webkit-appearance: none;
+    height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,0.2); outline: none;
+  }
+  .slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px;
+    border-radius: 50%; background: #fff; cursor: pointer;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+
+  /* 回転コントロール */
+  #rot-control {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 20px; width: 100%;
+  }
+  #rot-control label {
+    font-size: 10px; color: rgba(255,255,255,0.45);
+    letter-spacing: 0.07em; min-width: 34px; text-align: right;
+  }
+  .rot-axis-group {
+    display: flex; gap: 6px; flex: 1;
+  }
+  .rot-btn {
+    flex: 1; padding: 7px 0; border: none; border-radius: 8px;
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+    font-size: 10px; font-weight: 700; cursor: pointer;
+    letter-spacing: 0.04em; transition: background 0.15s;
+  }
+  .rot-btn.active-axis {
+    background: rgba(99,230,140,0.25); color: #63e68c;
+    border: 1px solid rgba(99,230,140,0.4);
+  }
+  .rot-btn:active { background: rgba(255,255,255,0.2); }
+
+  /* モデル一覧 */
   #model-list {
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    padding: 4px 20px;
-    scrollbar-width: none;
-    width: 100%;
+    display: flex; gap: 10px; overflow-x: auto;
+    padding: 2px 20px; scrollbar-width: none; width: 100%;
   }
-
   #model-list::-webkit-scrollbar { display: none; }
-
   .model-thumb {
-    flex-shrink: 0;
-    width: 68px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    cursor: pointer;
-    transition: transform 0.15s;
+    flex-shrink: 0; width: 64px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    cursor: pointer; transition: transform 0.15s;
   }
-
-  .model-thumb:active { transform: scale(0.93); }
-
+  .model-thumb:active { transform: scale(0.92); }
   .thumb-box {
-    width: 68px;
-    height: 68px;
-    border-radius: 14px;
+    width: 64px; height: 64px; border-radius: 14px;
     background: rgba(255,255,255,0.1);
     border: 2px solid rgba(255,255,255,0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-    transition: all 0.2s;
-    position: relative;
-    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; transition: all 0.2s;
   }
-
   .model-thumb.selected .thumb-box {
-    border-color: #63e68c;
-    background: rgba(99,230,140,0.15);
+    border-color: #63e68c; background: rgba(99,230,140,0.15);
     box-shadow: 0 0 0 3px rgba(99,230,140,0.2);
   }
-
   .thumb-label {
-    font-size: 10px;
-    color: rgba(255,255,255,0.7);
-    text-align: center;
-    letter-spacing: 0.03em;
-    white-space: nowrap;
+    font-size: 9px; color: rgba(255,255,255,0.65);
+    text-align: center; letter-spacing: 0.02em; white-space: nowrap;
   }
-
-  .model-thumb.selected .thumb-label {
-    color: #63e68c;
-    font-weight: 600;
-  }
+  .model-thumb.selected .thumb-label { color: #63e68c; font-weight: 700; }
 
   /* コントロールバー */
   #controls {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    padding: 0 24px;
-    width: 100%;
-    justify-content: center;
+    display: flex; align-items: center; gap: 20px;
+    padding: 0 24px; width: 100%; justify-content: center;
   }
-
-  /* アクションボタン（削除・全消し） */
   .action-btn {
-    width: 44px; height: 44px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255,255,255,0.12);
-    color: #fff;
-    font-size: 18px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 44px; height: 44px; border-radius: 50%; border: none;
+    background: rgba(255,255,255,0.12); color: #fff;
+    font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
     transition: background 0.2s;
   }
-
-  .action-btn:active { background: rgba(255,255,255,0.25); }
-
-  /* シャッターボタン */
+  .action-btn:active { background: rgba(255,255,255,0.28); }
   #shutter {
-    width: 72px; height: 72px;
-    border-radius: 50%;
-    border: 4px solid #fff;
-    background: rgba(255,255,255,0.15);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 72px; height: 72px; border-radius: 50%;
+    border: 4px solid #fff; background: rgba(255,255,255,0.15);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
     transition: all 0.15s;
-    backdrop-filter: blur(4px);
   }
-
-  #shutter:active {
-    background: rgba(255,255,255,0.9);
-    transform: scale(0.93);
-  }
-
+  #shutter:active { background: rgba(255,255,255,0.9); transform: scale(0.93); }
   #shutter-inner {
-    width: 54px; height: 54px;
-    border-radius: 50%;
-    background: #fff;
-    transition: all 0.15s;
+    width: 54px; height: 54px; border-radius: 50%; background: #fff; transition: all 0.15s;
   }
+  #shutter:active #shutter-inner { background: #0a0a0f; }
 
-  #shutter:active #shutter-inner {
-    background: #0a0a0f;
-  }
-
-  /* スケールスライダー */
-  #scale-control {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 24px;
-    width: 100%;
-  }
-
-  #scale-control label {
-    font-size: 11px;
-    color: rgba(255,255,255,0.5);
-    letter-spacing: 0.06em;
-    min-width: 36px;
-  }
-
-  #scale-slider {
-    flex: 1;
-    -webkit-appearance: none;
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(255,255,255,0.2);
-    outline: none;
-  }
-
-  #scale-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 20px; height: 20px;
-    border-radius: 50%;
-    background: #fff;
-    cursor: pointer;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.3);
-  }
-
-  /* フラッシュエフェクト */
+  /* フラッシュ */
   #flash {
-    position: fixed;
-    inset: 0;
-    background: #fff;
-    opacity: 0;
-    z-index: 100;
-    pointer-events: none;
-    transition: opacity 0.05s;
+    position: fixed; inset: 0; background: #fff; opacity: 0; z-index: 100;
+    pointer-events: none; transition: opacity 0.05s;
   }
-
   #flash.active { opacity: 1; }
 
-  /* カメラ起動待ち */
+  /* タッチオーバーレイ */
+  #touch-overlay { position: fixed; inset: 0; z-index: 5; }
+
+  /* ローディング */
   #loading {
-    position: fixed;
-    inset: 0;
-    background: #0a0a0f;
-    z-index: 200;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
+    position: fixed; inset: 0; background: #0a0a0f; z-index: 200;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
   }
-
-  #loading h2 {
-    font-size: 18px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    opacity: 0.8;
-  }
-
+  #loading h2 { font-size: 18px; font-weight: 500; letter-spacing: 0.08em; opacity: 0.8; }
   .spinner {
-    width: 36px; height: 36px;
-    border: 3px solid rgba(255,255,255,0.15);
-    border-top-color: #63e68c;
-    border-radius: 50%;
+    width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: #63e68c; border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
-
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  #loading p {
-    font-size: 13px;
-    color: rgba(255,255,255,0.4);
-    text-align: center;
-    padding: 0 32px;
-    line-height: 1.6;
-  }
-
-  /* 配置済みモデルの選択リング（Three.js外のタッチ補助） */
-  #touch-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 5;
-  }
+  #loading p { font-size: 13px; color: rgba(255,255,255,0.4); text-align: center; padding: 0 32px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -399,129 +248,149 @@
 <div id="flash"></div>
 
 <div id="ui">
+  <!-- トップバー -->
   <div id="topbar">
     <h1>AR Photo Studio</h1>
     <div id="mode-toggle">
       <button class="mode-btn active" data-mode="free" onclick="setMode('free')">自由配置</button>
       <button class="mode-btn" data-mode="hand" onclick="setMode('hand')">手持ち</button>
     </div>
+    <!-- カメラ切替 -->
+    <button id="cam-flip" onclick="flipCamera()" title="カメラ切替">🔄</button>
   </div>
 
+  <!-- ボトム -->
   <div id="bottom-ui">
-    <div id="scale-control">
+
+    <!-- サイズスライダー -->
+    <div class="slider-row">
       <label>サイズ</label>
       <input type="range" id="scale-slider" min="0.1" max="3" step="0.05" value="1"
              oninput="onScaleChange(this.value)">
     </div>
 
-    <div id="model-list">
-      <!-- JSで生成 -->
+    <!-- 奥行きスライダー -->
+    <div class="slider-row">
+      <label>奥行き</label>
+      <input type="range" id="depth-slider" min="1" max="8" step="0.1" value="3"
+             oninput="onDepthChange(this.value)">
     </div>
 
+    <!-- 回転コントロール -->
+    <div id="rot-control">
+      <label>回転</label>
+      <div class="rot-axis-group">
+        <button class="rot-btn active-axis" id="rot-x" onclick="setRotAxis('x')">X軸</button>
+        <button class="rot-btn active-axis" id="rot-y" onclick="setRotAxis('y')">Y軸</button>
+        <button class="rot-btn active-axis" id="rot-z" onclick="setRotAxis('z')">Z軸</button>
+        <button class="rot-btn" id="rot-none" onclick="setRotAxis('none')">停止</button>
+      </div>
+      <input type="range" id="rot-speed-slider" min="0" max="0.05" step="0.001" value="0.008"
+             style="width:60px;flex:unset" oninput="onRotSpeedChange(this.value)" title="回転速度">
+    </div>
+
+    <!-- モデル一覧 -->
+    <div id="model-list"></div>
+
+    <!-- シャッターバー -->
     <div id="controls">
       <button class="action-btn" onclick="removeSelected()" title="選択を削除">🗑</button>
-      <button id="shutter" onclick="takePhoto()">
-        <div id="shutter-inner"></div>
-      </button>
+      <button id="shutter" onclick="takePhoto()"><div id="shutter-inner"></div></button>
       <button class="action-btn" onclick="clearAll()" title="全て消す">✕</button>
     </div>
   </div>
 </div>
 
 <div id="touch-overlay"></div>
+<div id="status-bar"><div id="status-msg"></div></div>
+<div id="hand-indicator"><div class="hand-dot"></div><span>手を検出中</span></div>
 
-<div id="status-bar">
-  <div id="status-msg"></div>
-</div>
-
-<div id="hand-indicator">
-  <div class="hand-dot"></div>
-  <span>手を検出中</span>
-</div>
-
-<!-- Three.js r128 module -->
 <script type="module">
 import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
 
-// ─── モデル定義（デモ用：プリミティブ形状で代用）───
+// ── モデル定義 ──
 const MODEL_DEFS = [
-  { id: 'cube',     label: 'キューブ',   emoji: '🟦', color: 0x4488ff, shape: 'box' },
-  { id: 'sphere',   label: 'スフィア',   emoji: '🟡', color: 0xffcc44, shape: 'sphere' },
-  { id: 'torus',    label: 'リング',     emoji: '⭕', color: 0xff5577, shape: 'torus' },
-  { id: 'cone',     label: 'コーン',     emoji: '🔺', color: 0x44ffaa, shape: 'cone' },
-  { id: 'cylinder', label: 'シリンダー', emoji: '🔵', color: 0xaa44ff, shape: 'cylinder' },
-  { id: 'star',     label: 'スター',     emoji: '⭐', color: 0xffee00, shape: 'star' },
+  { id:'cube',     label:'キューブ',    emoji:'🟦', color:0x4488ff, shape:'box' },
+  { id:'sphere',   label:'スフィア',    emoji:'🟡', color:0xffcc44, shape:'sphere' },
+  { id:'torus',    label:'リング',      emoji:'⭕', color:0xff5577, shape:'torus' },
+  { id:'cone',     label:'コーン',      emoji:'🔺', color:0x44ffaa, shape:'cone' },
+  { id:'cylinder', label:'シリンダー',  emoji:'🔵', color:0xaa44ff, shape:'cylinder' },
+  { id:'star',     label:'スター',      emoji:'⭐', color:0xffee00, shape:'star' },
 ];
 
-// ─── Three.js セットアップ ───
+// ── Three.js ──
 const canvas = document.getElementById('three-canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000, 0);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
 camera.position.set(0, 0, 5);
 
-// 環境光
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(5, 10, 5);
-scene.add(dirLight);
-const pointLight = new THREE.PointLight(0x88aaff, 0.5);
-pointLight.position.set(-5, 5, 3);
-scene.add(pointLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const dLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dLight.position.set(5,10,5); scene.add(dLight);
+const pLight = new THREE.PointLight(0x88aaff, 0.5);
+pLight.position.set(-5,5,3); scene.add(pLight);
 
-// ─── 状態管理 ───
-let placedObjects = [];       // { mesh, screenX, screenY, scale, modelId }
-let selectedObj = null;
+// ── 状態 ──
+let placedObjects = [];
+let selectedObj   = null;
 let currentModelId = MODEL_DEFS[0].id;
-let currentMode = 'free';
-let handDetected = false;
-let handPosition = { x: 0, y: 0 };
-let handObject = null;        // 手持ちモードで追従するオブジェクト
+let currentMode    = 'free';
+let handDetected   = false;
+let handPosition   = { x:0, y:0 };
+let handObject     = null;
 
-// ─── プリミティブ生成 ───
-function createMesh(def, scale = 1) {
+// 回転設定（全オブジェクト共通）
+let rotAxes  = { x:true, y:true, z:false };  // 初期：X・Y有効
+let rotSpeed = 0.008;
+
+// カメラ向き
+let facingMode = 'environment';
+
+// 奥行き（depth）デフォルト
+let currentDepth = 3;
+
+// ── プリミティブ生成 ──
+function createMesh(def, scale=1) {
   let geo;
-  switch (def.shape) {
+  switch(def.shape) {
     case 'box':      geo = new THREE.BoxGeometry(1,1,1); break;
-    case 'sphere':   geo = new THREE.SphereGeometry(0.6, 32, 32); break;
-    case 'torus':    geo = new THREE.TorusGeometry(0.5, 0.2, 16, 60); break;
-    case 'cone':     geo = new THREE.ConeGeometry(0.6, 1.2, 32); break;
-    case 'cylinder': geo = new THREE.CylinderGeometry(0.4, 0.4, 1, 32); break;
-    case 'star':     geo = createStarGeometry(); break;
+    case 'sphere':   geo = new THREE.SphereGeometry(0.6,32,32); break;
+    case 'torus':    geo = new THREE.TorusGeometry(0.5,0.2,16,60); break;
+    case 'cone':     geo = new THREE.ConeGeometry(0.6,1.2,32); break;
+    case 'cylinder': geo = new THREE.CylinderGeometry(0.4,0.4,1,32); break;
+    case 'star':     geo = createStarGeo(); break;
     default:         geo = new THREE.BoxGeometry(1,1,1);
   }
-  const mat = new THREE.MeshStandardMaterial({
-    color: def.color,
-    metalness: 0.3,
-    roughness: 0.5,
-  });
+  const mat = new THREE.MeshStandardMaterial({ color:def.color, metalness:0.3, roughness:0.5 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.scale.setScalar(scale);
   return mesh;
 }
 
-function createStarGeometry() {
+function createStarGeo() {
   const shape = new THREE.Shape();
-  const outerR = 0.6, innerR = 0.25, points = 5;
-  for (let i = 0; i < points * 2; i++) {
-    const angle = (i * Math.PI) / points - Math.PI / 2;
-    const r = i % 2 === 0 ? outerR : innerR;
-    i === 0 ? shape.moveTo(Math.cos(angle)*r, Math.sin(angle)*r)
-            : shape.lineTo(Math.cos(angle)*r, Math.sin(angle)*r);
+  const outerR=0.6, innerR=0.25, pts=5;
+  for(let i=0; i<pts*2; i++){
+    const a = (i*Math.PI)/pts - Math.PI/2;
+    const r = i%2===0 ? outerR : innerR;
+    i===0 ? shape.moveTo(Math.cos(a)*r, Math.sin(a)*r)
+           : shape.lineTo(Math.cos(a)*r, Math.sin(a)*r);
   }
   shape.closePath();
-  return new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false });
+  return new THREE.ExtrudeGeometry(shape, { depth:0.2, bevelEnabled:false });
 }
 
-// ─── スクリーン座標 → Three.js ワールド座標 ───
-function screenToWorld(sx, sy, depth = 3) {
+// ── スクリーン→ワールド ──
+function screenToWorld(sx, sy, depth=3) {
+  // インカメラ時はX座標を反転して合わせる
+  const adjustedX = facingMode === 'user' ? window.innerWidth - sx : sx;
   const ndc = new THREE.Vector3(
-    (sx / window.innerWidth) * 2 - 1,
+    (adjustedX / window.innerWidth) * 2 - 1,
     -(sy / window.innerHeight) * 2 + 1,
     0.5
   );
@@ -530,289 +399,298 @@ function screenToWorld(sx, sy, depth = 3) {
   return camera.position.clone().add(dir.multiplyScalar(depth));
 }
 
-// ─── オブジェクト配置 ───
-function placeObject(sx, sy, modelId = currentModelId, scale = 1) {
-  const def = MODEL_DEFS.find(d => d.id === modelId);
-  if (!def) return;
+// ── オブジェクト配置 ──
+function placeObject(sx, sy, modelId=currentModelId, scale=1, depth=currentDepth) {
+  const def = MODEL_DEFS.find(d=>d.id===modelId);
+  if(!def) return;
   const mesh = createMesh(def, scale);
-  const pos = screenToWorld(sx, sy);
-  mesh.position.copy(pos);
+  mesh.position.copy(screenToWorld(sx, sy, depth));
   scene.add(mesh);
-
-  const obj = { mesh, screenX: sx, screenY: sy, scale, modelId };
+  const obj = { mesh, screenX:sx, screenY:sy, scale, modelId, depth };
   placedObjects.push(obj);
   selectObject(obj);
-  showStatus(`${def.label}を配置しました`);
+  showStatus(`${def.label}を配置`);
   return obj;
 }
 
 function selectObject(obj) {
-  // 以前の選択を解除
-  if (selectedObj && selectedObj.mesh) {
-    selectedObj.mesh.material.emissive?.setHex(0x000000);
-  }
+  if(selectedObj?.mesh) selectedObj.mesh.material.emissive?.setHex(0x000000);
   selectedObj = obj;
-  if (obj && obj.mesh) {
-    obj.mesh.material.emissive = new THREE.Color(0x224411);
-  }
-  if (obj) {
+  if(obj?.mesh) obj.mesh.material.emissive = new THREE.Color(0x1a3310);
+  if(obj) {
     document.getElementById('scale-slider').value = obj.scale;
+    document.getElementById('depth-slider').value = obj.depth ?? currentDepth;
   }
 }
 
 function removeSelected() {
-  if (!selectedObj) return;
+  if(!selectedObj) return;
   scene.remove(selectedObj.mesh);
-  placedObjects = placedObjects.filter(o => o !== selectedObj);
-  const idx = placedObjects.length - 1;
-  selectObject(idx >= 0 ? placedObjects[idx] : null);
+  placedObjects = placedObjects.filter(o=>o!==selectedObj);
+  selectObject(placedObjects.length > 0 ? placedObjects[placedObjects.length-1] : null);
   showStatus('削除しました');
 }
 
 function clearAll() {
-  placedObjects.forEach(o => scene.remove(o.mesh));
+  placedObjects.forEach(o=>scene.remove(o.mesh));
   placedObjects = [];
   selectedObj = null;
-  if (handObject) { scene.remove(handObject); handObject = null; }
+  if(handObject){ scene.remove(handObject); handObject=null; }
   showStatus('全て消しました');
 }
 
-// ─── サイズ変更 ───
+// ── スライダー ──
 window.onScaleChange = function(val) {
-  if (!selectedObj) return;
+  if(!selectedObj) return;
   selectedObj.scale = parseFloat(val);
   selectedObj.mesh.scale.setScalar(selectedObj.scale);
 };
 
-// ─── モード切替 ───
+window.onDepthChange = function(val) {
+  currentDepth = parseFloat(val);
+  if(!selectedObj) return;
+  selectedObj.depth = currentDepth;
+  // 現在の画面位置を維持しつつ奥行きだけ変更
+  const newPos = screenToWorld(selectedObj.screenX, selectedObj.screenY, currentDepth);
+  selectedObj.mesh.position.copy(newPos);
+};
+
+// ── 回転コントロール ──
+window.setRotAxis = function(axis) {
+  if(axis === 'none') {
+    rotAxes = { x:false, y:false, z:false };
+  } else {
+    // トグル
+    rotAxes[axis] = !rotAxes[axis];
+  }
+  // ボタン見た目更新
+  ['x','y','z'].forEach(a => {
+    document.getElementById(`rot-${a}`)?.classList.toggle('active-axis', rotAxes[a]);
+  });
+  const noneBtn = document.getElementById('rot-none');
+  const anyActive = rotAxes.x || rotAxes.y || rotAxes.z;
+  noneBtn.classList.toggle('active-axis', !anyActive);
+};
+
+window.onRotSpeedChange = function(val) {
+  rotSpeed = parseFloat(val);
+};
+
+// ── モード切替 ──
 window.setMode = function(mode) {
   currentMode = mode;
-  document.querySelectorAll('.mode-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.mode === mode);
+  document.querySelectorAll('.mode-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.mode===mode);
   });
-  if (mode === 'hand') {
+  if(mode==='hand') {
     startHandTracking();
-    showStatus('手をカメラに向けてください');
   } else {
     stopHandTracking();
-    if (handObject) { scene.remove(handObject); handObject = null; }
+    if(handObject){ scene.remove(handObject); handObject=null; }
   }
 };
 
-// ─── アニメーションループ ───
-let frameId;
+// ── カメラ切替 ──
+window.flipCamera = async function() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  const video = document.getElementById('video');
+  // ストリームを止める
+  if(video.srcObject) video.srcObject.getTracks().forEach(t=>t.stop());
+  // インカメラ時はミラー表示
+  video.classList.toggle('mirrored', facingMode === 'user');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    video.srcObject = stream;
+    video.play();
+    showStatus(facingMode==='user' ? 'インカメラに切替' : 'アウトカメラに切替');
+  } catch(e) {
+    showStatus('カメラの切替に失敗しました');
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    video.classList.toggle('mirrored', facingMode === 'user');
+  }
+};
+
+// ── アニメーション ──
 function animate() {
-  frameId = requestAnimationFrame(animate);
-
-  // 自動回転
+  requestAnimationFrame(animate);
   placedObjects.forEach(obj => {
-    if (obj.mesh) {
-      obj.mesh.rotation.y += 0.008;
-    }
+    if(!obj.mesh) return;
+    if(rotAxes.x) obj.mesh.rotation.x += rotSpeed;
+    if(rotAxes.y) obj.mesh.rotation.y += rotSpeed;
+    if(rotAxes.z) obj.mesh.rotation.z += rotSpeed;
   });
-
-  // 手持ちオブジェクト追従
-  if (currentMode === 'hand' && handDetected && handObject) {
+  if(currentMode==='hand' && handDetected && handObject) {
     const targetPos = screenToWorld(handPosition.x, handPosition.y, 2.5);
     handObject.position.lerp(targetPos, 0.2);
-    handObject.rotation.y += 0.012;
+    if(rotAxes.y) handObject.rotation.y += rotSpeed * 1.5;
   }
-
   renderer.render(scene, camera);
 }
 animate();
 
-// ─── タッチ操作 ───
+// ── タッチ操作 ──
 const overlay = document.getElementById('touch-overlay');
 let touchStartX, touchStartY, touchStartTime;
-let pinchStartDist = 0;
-let pinchObj = null;
+let pinchStartDist=0, pinchObj=null;
 
-overlay.addEventListener('touchstart', e => {
+overlay.addEventListener('touchstart', e=>{
   e.preventDefault();
-  if (e.touches.length === 1) {
+  if(e.touches.length===1) {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
     touchStartTime = Date.now();
-
-    // タッチ位置にあるオブジェクトを選択
     const hit = hitTest(touchStartX, touchStartY);
-    if (hit) {
-      selectObject(hit);
-    }
-  } else if (e.touches.length === 2) {
-    // ピンチ開始
+    if(hit) selectObject(hit);
+  } else if(e.touches.length===2) {
     pinchStartDist = getPinchDist(e);
     pinchObj = selectedObj;
   }
-}, { passive: false });
+},{passive:false});
 
-overlay.addEventListener('touchend', e => {
+overlay.addEventListener('touchend', e=>{
   e.preventDefault();
-  if (e.changedTouches.length === 1 && currentMode === 'free') {
+  if(e.changedTouches.length===1 && currentMode==='free') {
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
     const dt = Date.now() - touchStartTime;
-
-    if (dist < 12 && dt < 300) {
-      // タップ → 配置
+    if(Math.sqrt(dx*dx+dy*dy)<12 && dt<300) {
       const hit = hitTest(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-      if (!hit) {
-        placeObject(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-      }
+      if(!hit) placeObject(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
     }
   }
-}, { passive: false });
+},{passive:false});
 
-overlay.addEventListener('touchmove', e => {
+overlay.addEventListener('touchmove', e=>{
   e.preventDefault();
-  if (e.touches.length === 1 && selectedObj) {
-    const sx = e.touches[0].clientX;
-    const sy = e.touches[0].clientY;
-    const newPos = screenToWorld(sx, sy);
-    selectedObj.mesh.position.copy(newPos);
-    selectedObj.screenX = sx;
-    selectedObj.screenY = sy;
-  } else if (e.touches.length === 2 && pinchObj) {
+  if(e.touches.length===1 && selectedObj) {
+    const sx=e.touches[0].clientX, sy=e.touches[0].clientY;
+    const depth = selectedObj.depth ?? currentDepth;
+    selectedObj.mesh.position.copy(screenToWorld(sx, sy, depth));
+    selectedObj.screenX=sx; selectedObj.screenY=sy;
+  } else if(e.touches.length===2 && pinchObj) {
     const d = getPinchDist(e);
-    const ratio = d / pinchStartDist;
-    const newScale = Math.max(0.1, Math.min(3, pinchObj.scale * ratio));
+    const newScale = Math.max(0.1, Math.min(3, pinchObj.scale * (d/pinchStartDist)));
     pinchObj.mesh.scale.setScalar(newScale);
     pinchObj.scale = newScale;
     document.getElementById('scale-slider').value = newScale;
     pinchStartDist = d;
   }
-}, { passive: false });
+},{passive:false});
 
 function getPinchDist(e) {
-  const dx = e.touches[0].clientX - e.touches[1].clientX;
-  const dy = e.touches[0].clientY - e.touches[1].clientY;
-  return Math.sqrt(dx*dx + dy*dy);
+  const dx=e.touches[0].clientX-e.touches[1].clientX;
+  const dy=e.touches[0].clientY-e.touches[1].clientY;
+  return Math.sqrt(dx*dx+dy*dy);
 }
 
-// ─── ヒットテスト（簡易：スクリーン距離）───
+// ── ヒットテスト ──
 function hitTest(sx, sy) {
-  let best = null, bestD = 60;
-  placedObjects.forEach(obj => {
+  let best=null, bestD=70;
+  placedObjects.forEach(obj=>{
     const wpos = obj.mesh.position.clone().project(camera);
-    const px = (wpos.x * 0.5 + 0.5) * window.innerWidth;
-    const py = (-wpos.y * 0.5 + 0.5) * window.innerHeight;
-    const d = Math.sqrt((px-sx)**2 + (py-sy)**2);
-    if (d < bestD) { bestD = d; best = obj; }
+    const px = (wpos.x*0.5+0.5)*window.innerWidth;
+    const py = (-wpos.y*0.5+0.5)*window.innerHeight;
+    const d = Math.sqrt((px-sx)**2+(py-sy)**2);
+    if(d<bestD){ bestD=d; best=obj; }
   });
   return best;
 }
 
-// ─── 写真撮影 ───
+// ── 写真撮影 ──
 window.takePhoto = function() {
-  // フラッシュ
   const flash = document.getElementById('flash');
   flash.classList.add('active');
-  setTimeout(() => flash.classList.remove('active'), 150);
+  setTimeout(()=>flash.classList.remove('active'), 150);
 
-  // canvas合成：video + Three.js
-  const w = window.innerWidth * window.devicePixelRatio;
-  const h = window.innerHeight * window.devicePixelRatio;
-  const out = document.createElement('canvas');
-  out.width = w; out.height = h;
-  const ctx = out.getContext('2d');
+  const w=window.innerWidth*window.devicePixelRatio;
+  const h=window.innerHeight*window.devicePixelRatio;
+  const out=document.createElement('canvas');
+  out.width=w; out.height=h;
+  const ctx=out.getContext('2d');
 
-  // ビデオ描画
-  const video = document.getElementById('video');
-  ctx.drawImage(video, 0, 0, w, h);
+  const video=document.getElementById('video');
+  // インカメラ時はvideoも反転して合成
+  if(facingMode==='user') {
+    ctx.save();
+    ctx.translate(w,0); ctx.scale(-1,1);
+  }
+  ctx.drawImage(video,0,0,w,h);
+  if(facingMode==='user') ctx.restore();
 
-  // Three.js canvas描画
   renderer.render(scene, camera);
-  ctx.drawImage(canvas, 0, 0, w, h);
+  ctx.drawImage(canvas,0,0,w,h);
 
-  // ダウンロード
-  out.toBlob(blob => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ar-photo-${Date.now()}.jpg`;
-    a.click();
+  out.toBlob(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=`ar-photo-${Date.now()}.jpg`; a.click();
     URL.revokeObjectURL(url);
-  }, 'image/jpeg', 0.92);
-
+  },'image/jpeg',0.92);
   showStatus('📸 写真を保存しました');
 };
 
-// ─── ステータス表示 ───
+// ── ステータス ──
 let statusTimer;
 function showStatus(msg) {
-  const el = document.getElementById('status-msg');
-  el.textContent = msg;
-  el.classList.add('visible');
+  const el=document.getElementById('status-msg');
+  el.textContent=msg; el.classList.add('visible');
   clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+  statusTimer=setTimeout(()=>el.classList.remove('visible'),2500);
 }
 
-// ─── リサイズ対応 ───
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+// ── リサイズ ──
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth,window.innerHeight);
 });
 
-// ─── カメラ起動 ───
+// ── カメラ起動 ──
 async function startCamera() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
+      video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio:false
     });
-    const video = document.getElementById('video');
-    video.srcObject = stream;
-    video.onloadedmetadata = () => {
+    const video=document.getElementById('video');
+    video.srcObject=stream;
+    video.onloadedmetadata=()=>{
       video.play();
-      document.getElementById('loading').style.display = 'none';
-      showStatus('画面をタップしてモデルを配置');
+      document.getElementById('loading').style.display='none';
+      showStatus('タップしてモデルを配置');
     };
   } catch(err) {
-    const loading = document.getElementById('loading');
-    loading.innerHTML = `
+    document.getElementById('loading').innerHTML=`
       <div style="font-size:48px">📷</div>
       <h2 style="color:#ff5577">カメラにアクセスできません</h2>
-      <p>ブラウザの設定でカメラを許可してください。<br>HTTPSでアクセスする必要があります。</p>
-    `;
+      <p>ブラウザの設定でカメラを許可してください。<br>HTTPSでアクセスする必要があります。</p>`;
   }
 }
 
-// ─── 手トラッキング（MediaPipe Hands）───
-let handsDetector = null;
-let handTrackActive = false;
-let handVideoFrame;
+// ── 手トラッキング ──
+let handsDetector=null, handTrackActive=false, handVideoFrame;
 
 async function startHandTracking() {
-  if (handsDetector) { handTrackActive = true; return; }
-
-  // MediaPipeをCDNから動的ロード
+  if(handsDetector){ handTrackActive=true; return; }
   showStatus('手トラッキングを初期化中…');
   try {
     await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
     await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
-
     handsDetector = new window.Hands({
-      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+      locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
     });
-    handsDetector.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.5,
-    });
+    handsDetector.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.7, minTrackingConfidence:0.5 });
     handsDetector.onResults(onHandResults);
     await handsDetector.initialize();
-
-    const video = document.getElementById('video');
-    handTrackActive = true;
-
-    async function processFrame() {
-      if (!handTrackActive) return;
-      if (video.readyState >= 2) await handsDetector.send({ image: video });
-      handVideoFrame = requestAnimationFrame(processFrame);
+    handTrackActive=true;
+    const video=document.getElementById('video');
+    async function processFrame(){
+      if(!handTrackActive) return;
+      if(video.readyState>=2) await handsDetector.send({image:video});
+      handVideoFrame=requestAnimationFrame(processFrame);
     }
     processFrame();
     showStatus('手をカメラに向けてください');
@@ -823,64 +701,56 @@ async function startHandTracking() {
 }
 
 function stopHandTracking() {
-  handTrackActive = false;
+  handTrackActive=false;
   cancelAnimationFrame(handVideoFrame);
-  handDetected = false;
+  handDetected=false;
   document.getElementById('hand-indicator').classList.remove('active');
 }
 
 function onHandResults(results) {
-  if (!handTrackActive) return;
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-    const lm = results.multiHandLandmarks[0];
-    // 手のひら中心（ランドマーク9）
-    const palm = lm[9];
-    handPosition.x = palm.x * window.innerWidth;
-    handPosition.y = palm.y * window.innerHeight;
-    handDetected = true;
+  if(!handTrackActive) return;
+  if(results.multiHandLandmarks?.length>0) {
+    const palm=results.multiHandLandmarks[0][9];
+    handPosition.x=palm.x*window.innerWidth;
+    handPosition.y=palm.y*window.innerHeight;
+    handDetected=true;
     document.getElementById('hand-indicator').classList.add('active');
-
-    // 手持ちオブジェクトがなければ作成
-    if (!handObject && currentMode === 'hand') {
-      const def = MODEL_DEFS.find(d => d.id === currentModelId);
-      handObject = createMesh(def, parseFloat(document.getElementById('scale-slider').value));
+    if(!handObject && currentMode==='hand') {
+      const def=MODEL_DEFS.find(d=>d.id===currentModelId);
+      handObject=createMesh(def, parseFloat(document.getElementById('scale-slider').value));
       scene.add(handObject);
     }
   } else {
-    handDetected = false;
+    handDetected=false;
     document.getElementById('hand-indicator').classList.remove('active');
   }
 }
 
 function loadScript(src) {
-  return new Promise((res, rej) => {
-    if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
-    const s = document.createElement('script');
-    s.src = src; s.onload = res; s.onerror = rej;
+  return new Promise((res,rej)=>{
+    if(document.querySelector(`script[src="${src}"]`)){ res(); return; }
+    const s=document.createElement('script');
+    s.src=src; s.onload=res; s.onerror=rej;
     document.head.appendChild(s);
   });
 }
 
-// ─── モデル選択UI生成 ───
+// ── モデル一覧UI ──
 function buildModelList() {
-  const list = document.getElementById('model-list');
-  MODEL_DEFS.forEach(def => {
-    const item = document.createElement('div');
-    item.className = 'model-thumb' + (def.id === currentModelId ? ' selected' : '');
-    item.dataset.id = def.id;
-    item.innerHTML = `
-      <div class="thumb-box">${def.emoji}</div>
-      <div class="thumb-label">${def.label}</div>
-    `;
-    item.addEventListener('click', () => {
-      currentModelId = def.id;
-      document.querySelectorAll('.model-thumb').forEach(el => el.classList.remove('selected'));
+  const list=document.getElementById('model-list');
+  MODEL_DEFS.forEach(def=>{
+    const item=document.createElement('div');
+    item.className='model-thumb'+(def.id===currentModelId?' selected':'');
+    item.dataset.id=def.id;
+    item.innerHTML=`<div class="thumb-box">${def.emoji}</div><div class="thumb-label">${def.label}</div>`;
+    item.addEventListener('click',()=>{
+      currentModelId=def.id;
+      document.querySelectorAll('.model-thumb').forEach(el=>el.classList.remove('selected'));
       item.classList.add('selected');
-      // 手持ちモードならオブジェクトを差し替え
-      if (currentMode === 'hand' && handObject) {
+      if(currentMode==='hand' && handObject){
         scene.remove(handObject);
-        const d = MODEL_DEFS.find(d => d.id === currentModelId);
-        handObject = createMesh(d, parseFloat(document.getElementById('scale-slider').value));
+        const d=MODEL_DEFS.find(d=>d.id===currentModelId);
+        handObject=createMesh(d, parseFloat(document.getElementById('scale-slider').value));
         scene.add(handObject);
       }
       showStatus(`${def.label}を選択`);
@@ -889,12 +759,19 @@ function buildModelList() {
   });
 }
 
-// ─── グローバル公開（ボタンから呼べるように）───
-window.removeSelected = removeSelected;
-window.clearAll = clearAll;
+// ── グローバル公開 ──
+window.removeSelected=removeSelected;
+window.clearAll=clearAll;
 
-// ─── 初期化 ───
+// ── 初期回転ボタン状態 ──
+function initRotButtons() {
+  ['x','y','z'].forEach(a=>{
+    document.getElementById(`rot-${a}`)?.classList.toggle('active-axis', rotAxes[a]);
+  });
+}
+
 buildModelList();
+initRotButtons();
 startCamera();
 </script>
 </body>
